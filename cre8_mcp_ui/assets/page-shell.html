@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{title}}</title>
+
+  <!-- cre8-wc design system -->
+  <script type="module" src="https://cdn.jsdelivr.net/npm/@tmorrow/cre8-wc/dist/index.js"></script>
+
+  <!-- Brand theme tokens (optional, populated by build_ui_resource) -->
+  <style id="cre8-theme-tokens">
+{{theme_css}}
+  </style>
+
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      font-family: var(--cre8-font-family-body, system-ui, -apple-system, sans-serif);
+      background: var(--cre8-color-bg, transparent);
+      color: var(--cre8-color-text, #111);
+    }
+    #cre8-root { padding: var(--cre8-spacing-md, 16px); }
+  </style>
+</head>
+<body>
+  <div id="cre8-root">{{body}}</div>
+
+  <script>
+    // ─────────────────────────────────────────────────────────────
+    // cre8 ↔ mcp-ui postMessage bridge
+    //
+    // Implements the mcp-ui guest→host protocol with messageId
+    // round-trip support. Auto-wires elements that declare
+    // data-cre8-action so the agent's schema/HTML doesn't need to
+    // write any JS to communicate with the host.
+    // ─────────────────────────────────────────────────────────────
+    (function () {
+      const pending = new Map();
+      let counter = 0;
+      const mkId = () => `cre8-${Date.now()}-${++counter}`;
+
+      function send(type, payload, opts) {
+        opts = opts || {};
+        const messageId = opts.async ? mkId() : undefined;
+        const msg = { type: type, payload: payload };
+        if (messageId) msg.messageId = messageId;
+        window.parent.postMessage(msg, '*');
+        if (!messageId) return Promise.resolve(undefined);
+        return new Promise(function (resolve, reject) {
+          pending.set(messageId, { resolve: resolve, reject: reject, startedAt: Date.now() });
+        });
+      }
+
+      const bridge = {
+        // Call another MCP tool. Returns a Promise that resolves when
+        // the host invokes onUIAction and posts ui-message-response.
+        callTool: function (toolName, params, opts) {
+          opts = opts || {};
+          return send('tool', { toolName: toolName, params: params || {} }, { async: opts.async !== false });
+        },
+        // Inject a follow-up message into the conversation.
+        prompt: function (text) {
+          return send('prompt', { prompt: text });
+        },
+        // Ask the host to open a URL.
+        openLink: function (url) {
+          return send('link', { url: url });
+        },
+        // Log a message to the host.
+        notify: function (message) {
+          return send('notify', { message: message });
+        },
+        // Generic intent (host-specific semantics).
+        intent: function (intent, params) {
+          return send('intent', { intent: intent, params: params || {} });
+        },
+      };
+
+      // ─── auto-wire ────────────────────────────────────────────
+      // <cre8-button data-cre8-action="tool:saveContact"
+      //              data-cre8-params='{"id":"123"}'>Save</cre8-button>
+      //
+      // <cre8-button data-cre8-action="prompt"
+      //              data-cre8-params='{"text":"Tell me more"}'>...</>
+      //
+      // Inside a form scope, all [name] fields are collected into
+      // params automatically. Scope is: closest cre8-form, <form>,
+      // or [data-cre8-form-scope].
+      function collectFormScope(el) {
+        const scope = el.closest('[data-cre8-form-scope], cre8-form, form');
+        const out = {};
+        if (!scope) return out;
+        scope.querySelectorAll('[name]').forEach(function (field) {
+          const name = field.getAttribute('name');
+          if (!name) return;
+          let v;
+          if (field.type === 'checkbox') v = field.checked;
+          else if (field.type === 'radio') v = field.checked ? field.value : undefined;
+          else v = 'value' in field ? field.value : field.getAttribute('value');
+          if (v !== undefined) out[name] = v;
+        });
+        return out;
+      }
+
+      function dispatchResult(el, eventName, detail) {
+        el.dispatchEvent(new CustomEvent(eventName, { detail: detail, bubbles: true, composed: true }));
+      }
+
+      function wireOne(el) {
+        if (el.__cre8Wired) return;
+        el.__cre8Wired = true;
+        const action = el.getAttribute('data-cre8-action');
+        const trigger = el.getAttribute('data-cre8-trigger') || 'click';
+
+        el.addEventListener(trigger, function () {
+          const paramsAttr = el.getAttribute('data-cre8-params');
+          let params = {};
+          if (paramsAttr) {
+            try { params = JSON.parse(paramsAttr); } catch (e) { /* ignore */ }
+          }
+          // Merge form-scope fields under params, then under params._form
+          // so explicit params win. Same-named field overrides form value.
+          const formValues = collectFormScope(el);
+          params = Object.assign({}, formValues, params);
+
+          if (action.indexOf('tool:') === 0) {
+            const toolName = action.slice('tool:'.length);
+            bridge.callTool(toolName, params).then(
+              function (res) { dispatchResult(el, 'cre8-action-success', res); },
+              function (err) { dispatchResult(el, 'cre8-action-error', err); }
+            );
+          } else if (action === 'prompt') {
+            bridge.prompt(params.text || el.textContent.trim());
+          } else if (action === 'link') {
+            bridge.openLink(params.url || el.getAttribute('href'));
+          } else if (action === 'notify') {
+            bridge.notify(params.message || '');
+          } else if (action.indexOf('intent:') === 0) {
+            bridge.intent(action.slice('intent:'.length), params);
+          }
+        });
+      }
+
+      function wireActions(root) {
+        root = root || document;
+        const nodes = root.querySelectorAll('[data-cre8-action]');
+        nodes.forEach(wireOne);
+      }
+
+      // ─── host → guest listener ────────────────────────────────
+      window.addEventListener('message', function (event) {
+        const msg = event.data;
+        if (!msg || typeof msg !== 'object') return;
+        if (!msg.messageId || !pending.has(msg.messageId)) return;
+        const entry = pending.get(msg.messageId);
+        if (msg.type === 'ui-message-received') return; // ack, keep pending
+        if (msg.type === 'ui-message-response') {
+          pending.delete(msg.messageId);
+          if (msg.payload && msg.payload.error) entry.reject(msg.payload.error);
+          else entry.resolve(msg.payload ? msg.payload.response : undefined);
+        }
+      });
+
+      // ─── auto-resize ──────────────────────────────────────────
+      function reportSize() {
+        const h = document.documentElement.scrollHeight;
+        const w = document.documentElement.scrollWidth;
+        window.parent.postMessage(
+          { type: 'ui-size-change', payload: { height: h, width: w } },
+          '*'
+        );
+      }
+
+      // ─── lifecycle ────────────────────────────────────────────
+      function init() {
+        wireActions();
+        reportSize();
+      }
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+      } else {
+        init();
+      }
+      // Observe for cre8-wc upgrades and dynamically-inserted nodes.
+      const obs = new MutationObserver(function () {
+        wireActions();
+        reportSize();
+      });
+      obs.observe(document.body, { childList: true, subtree: true });
+
+      // Expose globally for inline-script consumers.
+      bridge.wireActions = wireActions;
+      bridge.reportSize = reportSize;
+      window.cre8Bridge = bridge;
+    })();
+  </script>
+</body>
+</html>

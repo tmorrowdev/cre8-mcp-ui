@@ -1,0 +1,29 @@
+[project]
+name = "cre8-mcp-ui-server"
+version = "0.1.0"
+description = "Python FastMCP server serving @tmorrow/cre8-wc components as interactive mcp-ui resources"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "mcp>=1.2.0",
+    "mcp-ui-server>=5.0.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+cre8-mcp-ui-server = "server:main"
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+py-modules = ["server"]
+
+[tool.setuptools.packages.find]
+include = ["cre8_mcp_ui*"]
+
+[tool.setuptools.package-data]
+cre8_mcp_ui = ["assets/*.html"]
