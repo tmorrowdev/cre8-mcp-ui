@@ -5,12 +5,16 @@ description = "Python FastMCP server serving @tmorrow/cre8-wc components as inte
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "mcp>=1.2.0",
+    "mcp>=1.26.0",
     "mcp-ui-server>=5.0.0",
 ]
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
+# Required only for the browser-reachable Streamable HTTP mode used by the
+# local MCP Apps host harness (MCP_TRANSPORT=streamable-http). Not needed for
+# the default stdio transport.
+http = ["uvicorn>=0.34.0"]
 
 [project.scripts]
 cre8-mcp-ui-server = "server:main"

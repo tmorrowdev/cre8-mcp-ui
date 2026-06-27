@@ -50,6 +50,19 @@ from mcp_ui_server import create_ui_resource
 _SHELL_PATH = Path(__file__).parent / "assets" / "page-shell.html"
 _SHELL_TEMPLATE: str | None = None
 
+# MCP Apps (SEP-1865) shell — speaks the JSON-RPC-over-postMessage dialect via
+# the @modelcontextprotocol/ext-apps SDK so hosts like Claude Desktop render the
+# UI in a sandboxed iframe instead of dumping raw HTML.
+_APP_SHELL_PATH = Path(__file__).parent / "assets" / "page-shell-mcp-app.html"
+_APP_SHELL_TEMPLATE: str | None = None
+
+# Domains the MCP Apps iframe must be allowed to load, declared in the
+# resource's _meta.ui.csp: the ext-apps SDK (esm.sh) and cre8-wc (jsdelivr).
+APP_CSP_RESOURCE_DOMAINS = ["https://esm.sh", "https://cdn.jsdelivr.net"]
+APP_CSP_CONNECT_DOMAINS = ["https://esm.sh", "https://cdn.jsdelivr.net"]
+# The exact MIME type the MCP Apps spec requires for a ui:// resource.
+APP_MIME_TYPE = "text/html;profile=mcp-app"
+
 # Strict component-name pattern: HTML custom elements must start with a
 # lowercase letter and contain a hyphen for cre8-* elements, but we also
 # accept built-in tags like div, span, h1-h6, p, ul, li, etc.
@@ -62,6 +75,13 @@ def _load_shell() -> str:
     if _SHELL_TEMPLATE is None:
         _SHELL_TEMPLATE = _SHELL_PATH.read_text(encoding="utf-8")
     return _SHELL_TEMPLATE
+
+
+def _load_app_shell() -> str:
+    global _APP_SHELL_TEMPLATE
+    if _APP_SHELL_TEMPLATE is None:
+        _APP_SHELL_TEMPLATE = _APP_SHELL_PATH.read_text(encoding="utf-8")
+    return _APP_SHELL_TEMPLATE
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -218,13 +238,92 @@ def wrap_in_shell(
     title: str = "cre8-wc UI",
     theme_css: str = "",
 ) -> str:
-    """Inject a body fragment into the page shell, returning a full HTML doc."""
+    """Inject a body fragment into the classic mcp-ui page shell (full HTML doc)."""
     shell = _load_shell()
     return (
         shell.replace("{{title}}", _escape_text(title))
         .replace("{{theme_css}}", theme_css)
         .replace("{{body}}", body_html)
     )
+
+
+# ──────────────────────────────────────────────────────────────────────
+# MCP Apps (SEP-1865) page rendering
+#
+# Unlike the classic path, an MCP App is served as a real `ui://` *resource*
+# (mimeType text/html;profile=mcp-app) that the tool references via
+# _meta.ui.resourceUri — the host fetches and renders it in a sandboxed iframe.
+# These helpers produce the full HTML document and the matching CSP metadata.
+# ──────────────────────────────────────────────────────────────────────
+
+def render_app_page(
+    body_html: str,
+    *,
+    title: str = "cre8-wc UI",
+    app_name: str = "cre8-mcp-ui",
+    theme_css: str = "",
+) -> str:
+    """Wrap a body fragment in the MCP Apps shell, returning a full HTML doc.
+
+    The result is meant to be returned verbatim from an `@mcp.resource(...)`
+    handler registered with `mime_type=APP_MIME_TYPE` and `meta=app_csp_meta()`.
+    """
+    shell = _load_app_shell()
+    return (
+        shell.replace("{{title}}", _escape_text(title))
+        .replace("{{app_name}}", _escape_attr(app_name))
+        .replace("{{theme_css}}", theme_css)
+        .replace("{{body}}", body_html)
+    )
+
+
+def render_app_page_from_schema(
+    schema: dict[str, Any],
+    *,
+    title: str = "cre8-wc UI",
+    app_name: str = "cre8-mcp-ui",
+    theme_css: str = "",
+) -> str:
+    """Render a cre8-a2ui schema into a full MCP Apps HTML document."""
+    return render_app_page(
+        render_schema(schema),
+        title=title,
+        app_name=app_name,
+        theme_css=theme_css,
+    )
+
+
+def app_csp_meta(
+    *,
+    resource_domains: list[str] | None = None,
+    connect_domains: list[str] | None = None,
+) -> dict[str, Any]:
+    """Build the `_meta` dict for an MCP Apps `ui://` resource.
+
+    Returns ``{"ui": {"csp": {...}}}`` — every external origin the iframe loads
+    from must be listed here or the host sandbox blocks it.
+    """
+    return {
+        "ui": {
+            "csp": {
+                "resourceDomains": resource_domains or list(APP_CSP_RESOURCE_DOMAINS),
+                "connectDomains": connect_domains or list(APP_CSP_CONNECT_DOMAINS),
+            }
+        }
+    }
+
+
+def app_tool_meta(resource_uri: str) -> dict[str, Any]:
+    """Build the tool `_meta` that links a tool to its MCP Apps UI resource.
+
+    Includes the legacy ``ui/resourceUri`` key alongside ``ui.resourceUri`` for
+    compatibility with hosts on either revision of the spec.
+    """
+    _validate_uri(resource_uri)
+    return {
+        "ui": {"resourceUri": resource_uri},
+        "ui/resourceUri": resource_uri,  # legacy support
+    }
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -281,4 +380,12 @@ __all__ = [
     "from_schema",
     "render_schema",
     "wrap_in_shell",
+    # MCP Apps (SEP-1865)
+    "render_app_page",
+    "render_app_page_from_schema",
+    "app_csp_meta",
+    "app_tool_meta",
+    "APP_MIME_TYPE",
+    "APP_CSP_RESOURCE_DOMAINS",
+    "APP_CSP_CONNECT_DOMAINS",
 ]

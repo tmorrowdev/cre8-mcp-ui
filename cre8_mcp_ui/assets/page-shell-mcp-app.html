@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>{{title}}</title>
+
+  <!-- cre8-wc design system (CSP: resourceDomains must allow cdn.jsdelivr.net) -->
+  <script type="module" src="https://cdn.jsdelivr.net/npm/@tmorrow/cre8-wc/dist/index.js"></script>
+
+  <!-- cre8-a2ui brand design tokens: defines the :root --cre8-* custom properties
+       the components consume. @imports tokens_brand.css + fonts.css from the same
+       CDN directory (fonts load woff2 from cdn.jsdelivr.net — covered by CSP). -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tmorrow/cre8-wc/dist/design-tokens/brands/cre8-a2ui/css/tokens_cre8-a2ui.css">
+
+  <!-- Per-call theme overrides (optional, populated by build_ui_resource);
+       loaded after the brand tokens so overrides win the cascade. -->
+  <style id="cre8-theme-tokens">
+{{theme_css}}
+  </style>
+
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      font-family: var(--cre8-font-family-body, system-ui, -apple-system, sans-serif);
+      background: var(--cre8-color-bg, transparent);
+      color: var(--cre8-color-text, #111);
+    }
+    #cre8-root { padding: var(--cre8-spacing-md, 16px); }
+    [data-theme="dark"] { --cre8-color-text: #eee; }
+  </style>
+</head>
+<body>
+  <div id="cre8-root">{{body}}</div>
+
+  <!--
+    cre8 ↔ MCP Apps bridge (SEP-1865)
+
+    Speaks the MCP Apps JSON-RPC-over-postMessage dialect via the official
+    @modelcontextprotocol/ext-apps `App` class, which performs the ui/initialize
+    handshake for us. The declarative authoring conventions from the classic
+    mcp-ui shell are preserved — data-cre8-action / form-scope / data-cre8-params —
+    but each action is now routed to app.callServerTool(...) instead of a raw
+    postMessage. This is what lets Claude Desktop render the UI as a sandboxed,
+    interactive iframe rather than a raw-HTML dump.
+
+    CSP: esm.sh (this SDK) and cdn.jsdelivr.net (cre8-wc) must appear in the
+    resource's _meta.ui.csp.resourceDomains, or the host sandbox blocks them.
+  -->
+  <script type="module">
+    import {
+      App,
+      applyDocumentTheme,
+      applyHostFonts,
+      applyHostStyleVariables,
+    } from "https://esm.sh/@modelcontextprotocol/ext-apps@0.4.1";
+
+    // ── form-scope collection (unchanged from the classic shell) ──────────
+    function collectFormScope(el) {
+      const scope = el.closest('[data-cre8-form-scope], cre8-form, form');
+      const out = {};
+      if (!scope) return out;
+      scope.querySelectorAll('[name]').forEach(function (field) {
+        const name = field.getAttribute('name');
+        if (!name) return;
+        let v;
+        if (field.type === 'checkbox') v = field.checked;
+        else if (field.type === 'radio') v = field.checked ? field.value : undefined;
+        else v = 'value' in field ? field.value : field.getAttribute('value');
+        if (v !== undefined) out[name] = v;
+      });
+      return out;
+    }
+
+    function clearFormScope(el) {
+      const scope = el.closest('[data-cre8-form-scope], cre8-form, form');
+      if (!scope) return;
+      scope.querySelectorAll('[name]').forEach(function (field) {
+        if (field.type === 'checkbox' || field.type === 'radio') field.checked = false;
+        else if ('value' in field) field.value = '';
+      });
+    }
+
+    function dispatchResult(el, eventName, detail) {
+      el.dispatchEvent(new CustomEvent(eventName, { detail: detail, bubbles: true, composed: true }));
+    }
+
+    // Pull a plain JS object out of a CallToolResult: prefer structuredContent,
+    // fall back to JSON-parsing the first text block (matches server tools that
+    // return list[TextContent] with a JSON body).
+    function resultData(result) {
+      if (!result) return null;
+      if (result.structuredContent) return result.structuredContent;
+      const text = result.content && result.content[0] && result.content[0].text;
+      if (!text) return null;
+      try { return JSON.parse(text); } catch (e) { return { text: text }; }
+    }
+
+    function escapeHtml(s) {
+      return String(s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
+    // Render a {contacts: [...]} payload into a cre8-list target. Generic enough
+    // for the demo; a richer app would template per resource.
+    function renderList(targetSel, data) {
+      const target = document.querySelector(targetSel);
+      if (!target || !data) return;
+      const items = (data.contacts || data.items || []);
+      if (!items.length) {
+        target.innerHTML =
+          '<cre8-empty-state headline="No contacts yet" description="Add one with the form above."></cre8-empty-state>';
+        return;
+      }
+      target.innerHTML = items.map(function (c) {
+        const name = escapeHtml(c.name || c.headline || '');
+        const sub = escapeHtml(c.email || c.supporting_text || c.notes || '');
+        return '<cre8-list-item headline="' + name + '" supporting-text="' + sub + '"></cre8-list-item>';
+      }).join('');
+    }
+
+    function parseToolAction(value) {
+      // "tool:save_contact" -> "save_contact"
+      if (!value) return null;
+      return value.indexOf('tool:') === 0 ? value.slice('tool:'.length) : value;
+    }
+
+    let app;
+
+    async function runAction(el) {
+      const action = el.getAttribute('data-cre8-action');
+      const paramsAttr = el.getAttribute('data-cre8-params');
+      let params = {};
+      if (paramsAttr) { try { params = JSON.parse(paramsAttr); } catch (e) {} }
+      params = Object.assign({}, collectFormScope(el), params);
+
+      try {
+        if (action.indexOf('tool:') === 0) {
+          const name = action.slice('tool:'.length);
+          const result = await app.callServerTool({ name: name, arguments: params });
+          dispatchResult(el, 'cre8-action-success', resultData(result));
+          if (el.hasAttribute('data-cre8-reset')) clearFormScope(el);
+          // Optional chained read-tool + render into a target.
+          const refresh = parseToolAction(el.getAttribute('data-cre8-refresh'));
+          const target = el.getAttribute('data-cre8-target');
+          if (refresh && target) {
+            const fresh = await app.callServerTool({ name: refresh, arguments: {} });
+            renderList(target, resultData(fresh));
+          }
+        } else if (action === 'prompt') {
+          await app.sendMessage({ role: 'user', content: [{ type: 'text', text: params.text || el.textContent.trim() }] });
+        } else if (action === 'link') {
+          await app.openLink({ url: params.url || el.getAttribute('href') });
+        } else if (action === 'notify') {
+          await app.sendLog({ level: 'info', data: params.message || '' });
+        }
+      } catch (err) {
+        console.error('[cre8] action failed', err);
+        dispatchResult(el, 'cre8-action-error', err);
+      }
+    }
+
+    function wireOne(el) {
+      if (el.__cre8Wired) return;
+      el.__cre8Wired = true;
+      const trigger = el.getAttribute('data-cre8-trigger') || 'click';
+      el.addEventListener(trigger, function () { runAction(el); });
+    }
+
+    function wireActions(root) {
+      (root || document).querySelectorAll('[data-cre8-action]').forEach(wireOne);
+    }
+
+    // Run any data-cre8-onload="tool:NAME" data-cre8-target="SEL" hooks once,
+    // so the app can hydrate (e.g. load existing contacts) on first render.
+    async function runOnloadHooks() {
+      const nodes = document.querySelectorAll('[data-cre8-onload]');
+      for (const el of nodes) {
+        if (el.__cre8Loaded) continue;
+        el.__cre8Loaded = true;
+        const name = parseToolAction(el.getAttribute('data-cre8-onload'));
+        const target = el.getAttribute('data-cre8-target') || ('#' + el.id);
+        if (!name) continue;
+        try {
+          const result = await app.callServerTool({ name: name, arguments: {} });
+          renderList(target, resultData(result));
+        } catch (err) { console.error('[cre8] onload failed', err); }
+      }
+    }
+
+    function applyHostContext(ctx) {
+      if (!ctx) return;
+      if (ctx.theme) applyDocumentTheme(ctx.theme);
+      if (ctx.styles && ctx.styles.variables) applyHostStyleVariables(ctx.styles.variables);
+      if (ctx.styles && ctx.styles.css && ctx.styles.css.fonts) applyHostFonts(ctx.styles.css.fonts);
+    }
+
+    // ── boot ──────────────────────────────────────────────────────────────
+    app = new App({ name: "{{app_name}}", version: "1.0.0" });
+    app.onerror = console.error;
+    app.onhostcontextchanged = applyHostContext;
+
+    // Expose a thin bridge for any inline-script consumers, mirroring the
+    // classic shell's window.cre8Bridge.callTool surface.
+    window.cre8Bridge = {
+      callTool: function (name, args) { return app.callServerTool({ name: name, arguments: args || {} }); },
+      prompt: function (text) { return app.sendMessage({ role: 'user', content: [{ type: 'text', text: text }] }); },
+      openLink: function (url) { return app.openLink({ url: url }); },
+      notify: function (message) { return app.sendLog({ level: 'info', data: message }); },
+      wireActions: wireActions,
+      renderList: renderList,
+    };
+
+    await app.connect();
+    applyHostContext(app.getHostContext());
+    wireActions();
+    await runOnloadHooks();
+
+    // cre8-wc upgrades asynchronously; keep newly-inserted action nodes wired.
+    new MutationObserver(function () { wireActions(); }).observe(document.body, { childList: true, subtree: true });
+  </script>
+</body>
+</html>
