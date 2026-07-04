@@ -111,16 +111,22 @@ def _contact_form_schema() -> dict:
                             "header": [
                                 {"component": "h2", "slots": {"default": [{"text": "Add a contact"}]}}
                             ],
-                            "default": [
+                            # cre8-wc 2.x cards render their content from the
+                            # `body` slot (not a default slot).
+                            "body": [
                                 {
                                     # data-cre8-form-scope marks the subtree whose
                                     # [name] fields are collected on submit.
-                                    "component": "cre8-form",
+                                    "component": "div",
                                     "props": {"data-cre8-form-scope": True},
                                     "slots": {
                                         "default": [
+                                            # cre8-wc 2.x unifies text inputs under
+                                            # <cre8-field> (cre8-input/-textarea were
+                                            # removed). label/name/type/value/required
+                                            # are attributes; value is a readable prop.
                                             {
-                                                "component": "cre8-input",
+                                                "component": "cre8-field",
                                                 "props": {
                                                     "name": "name",
                                                     "label": "Full name",
@@ -128,7 +134,7 @@ def _contact_form_schema() -> dict:
                                                 },
                                             },
                                             {
-                                                "component": "cre8-input",
+                                                "component": "cre8-field",
                                                 "props": {
                                                     "name": "email",
                                                     "label": "Email",
@@ -137,13 +143,17 @@ def _contact_form_schema() -> dict:
                                                 },
                                             },
                                             {
-                                                "component": "cre8-textarea",
-                                                "props": {"name": "notes", "label": "Notes", "rows": 3},
+                                                "component": "cre8-field",
+                                                "props": {"name": "notes", "label": "Notes"},
                                             },
                                             {
                                                 "component": "cre8-button",
                                                 "props": {
                                                     "variant": "primary",
+                                                    # 2.x cre8-button takes its label
+                                                    # from the `text` attribute.
+                                                    "text": "Save contact",
+                                                    "type": "button",
                                                     "data-cre8-refresh": "tool:list_contacts",
                                                     "data-cre8-target": "#cre8-contacts",
                                                     "data-cre8-reset": True,
@@ -151,7 +161,6 @@ def _contact_form_schema() -> dict:
                                                 "events": {
                                                     "click": {"type": "tool", "toolName": "save_contact"}
                                                 },
-                                                "slots": {"default": [{"text": "Save contact"}]},
                                             },
                                         ]
                                     },

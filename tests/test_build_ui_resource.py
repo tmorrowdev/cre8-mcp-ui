@@ -262,6 +262,20 @@ def test_app_tool_meta_csp_optional_and_frame():
     print("✓ app_tool_meta_csp_optional_and_frame")
 
 
+def test_contact_form_uses_cre8wc_2x_components():
+    import server as srv
+
+    html = srv.contact_form_view()
+    # 2.x tags that must be present.
+    assert "<cre8-field" in html
+    assert 'slot="body"' in html  # card body slot (2.x), not the default slot
+    assert 'text="Save contact"' in html  # button label is an attribute in 2.x
+    # Tags removed in the cre8-wc 2.0 migration must not reappear.
+    for gone in ("<cre8-input", "<cre8-textarea", "<cre8-form", "<cre8-empty-state"):
+        assert gone not in html, f"removed 2.x component leaked back: {gone}"
+    print("✓ contact_form_uses_cre8wc_2x_components")
+
+
 def test_server_advertises_ui_extension():
     import server as srv
 

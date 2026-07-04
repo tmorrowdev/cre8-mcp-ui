@@ -121,14 +121,18 @@
       if (!target || !data) return;
       const items = (data.contacts || data.items || []);
       if (!items.length) {
+        // cre8-wc 2.x: cre8-empty-state was removed; use an inline alert.
         target.innerHTML =
-          '<cre8-empty-state headline="No contacts yet" description="Add one with the form above."></cre8-empty-state>';
+          '<cre8-inline-alert variant="info">No contacts yet. Add one with the form above.</cre8-inline-alert>';
         return;
       }
+      // cre8-wc 2.x: cre8-list-item renders default-slot content (the old
+      // headline / supporting-text attributes no longer exist).
       target.innerHTML = items.map(function (c) {
         const name = escapeHtml(c.name || c.headline || '');
         const sub = escapeHtml(c.email || c.supporting_text || c.notes || '');
-        return '<cre8-list-item headline="' + name + '" supporting-text="' + sub + '"></cre8-list-item>';
+        return '<cre8-list-item><strong>' + name + '</strong>' +
+               (sub ? ' — ' + sub : '') + '</cre8-list-item>';
       }).join('');
     }
 
