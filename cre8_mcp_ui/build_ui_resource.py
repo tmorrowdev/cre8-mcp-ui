@@ -56,6 +56,22 @@ _SHELL_TEMPLATE: str | None = None
 _APP_SHELL_PATH = Path(__file__).parent / "assets" / "page-shell-mcp-app.html"
 _APP_SHELL_TEMPLATE: str | None = None
 
+# Self-contained vendored assets inlined into the MCP App shell so the sandboxed
+# iframe makes zero external requests (see assets/vendor/README.md).
+_VENDOR_DIR = Path(__file__).parent / "assets" / "vendor"
+_VENDOR_CACHE: dict[str, str] = {}
+
+
+def _load_vendor(name: str) -> str:
+    if name not in _VENDOR_CACHE:
+        _VENDOR_CACHE[name] = (_VENDOR_DIR / name).read_text(encoding="utf-8")
+    return _VENDOR_CACHE[name]
+
+
+def _escape_closing_script(js: str) -> str:
+    """Neutralize any literal </script> in embedded JS so it can't close the tag."""
+    return js.replace("</script", "<\\/script")
+
 # Domains the MCP Apps iframe must be allowed to load, declared in the
 # resource's _meta.ui.csp: the ext-apps SDK (esm.sh) and cre8-wc (jsdelivr).
 APP_CSP_RESOURCE_DOMAINS = ["https://esm.sh", "https://cdn.jsdelivr.net"]
@@ -273,6 +289,15 @@ def render_app_page(
         shell.replace("{{title}}", _escape_text(title))
         .replace("{{app_name}}", _escape_attr(app_name))
         .replace("{{theme_css}}", theme_css)
+        .replace("{{tokens_css}}", _load_vendor("tokens.css"))
+        .replace(
+            "{{cre8_wc_js}}",
+            _escape_closing_script(_load_vendor("cre8-wc.min.js")),
+        )
+        .replace(
+            "{{ext_apps_sdk_js}}",
+            _escape_closing_script(_load_vendor("ext-apps.globalized.js")),
+        )
         .replace("{{body}}", body_html)
     )
 

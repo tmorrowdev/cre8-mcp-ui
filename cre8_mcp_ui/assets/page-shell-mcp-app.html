@@ -6,16 +6,21 @@
   <meta name="color-scheme" content="light dark">
   <title>{{title}}</title>
 
-  <!-- cre8-wc design system (CSP: resourceDomains must allow cdn.jsdelivr.net).
-       Use the self-registering CDN bundle: it calls customElements.define() for
-       every cre8-* element. (The package's ./lib/index.js only re-exports classes
-       and there is no ./dist/index.js, so neither registers elements on its own.) -->
-  <script type="module" src="https://cdn.jsdelivr.net/npm/@tmorrow/cre8-wc@2/cdn/cre8-wc.esm.js"></script>
+  <!-- SELF-CONTAINED: everything below is inlined from cre8_mcp_ui/assets/vendor
+       so the sandboxed iframe makes ZERO external network requests. Strict hosts
+       (e.g. claude.ai) may block external CDN loads regardless of the resource's
+       _meta.ui.csp hints; inlining removes that dependency entirely. -->
 
-  <!-- cre8-a2ui brand design tokens: defines the :root --cre8-* custom properties
-       the components consume. @imports tokens_brand.css + fonts.css from the same
-       CDN directory (fonts load woff2 from cdn.jsdelivr.net — covered by CSP). -->
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tmorrow/cre8-wc@2/dist/design-tokens/brands/cre8-a2ui/css/tokens_cre8-a2ui.css">
+  <!-- cre8-a2ui :root design tokens (--cre8-* custom properties). -->
+  <style id="cre8-brand-tokens">
+{{tokens_css}}
+  </style>
+
+  <!-- cre8-wc components (only the 6 the form uses; each self-registers via
+       customElements.define). Inline module → needs only script-src 'unsafe-inline'. -->
+  <script type="module">
+{{cre8_wc_js}}
+  </script>
 
   <!-- Per-call theme overrides (optional, populated by build_ui_resource);
        loaded after the brand tokens so overrides win the cascade. -->
@@ -49,23 +54,25 @@
     postMessage. This is what lets Claude Desktop render the UI as a sandboxed,
     interactive iframe rather than a raw-HTML dump.
 
-    CSP: esm.sh (this SDK) and cdn.jsdelivr.net (cre8-wc) must appear in the
-    resource's _meta.ui.csp.resourceDomains, or the host sandbox blocks them.
+    Self-contained: the SDK (ext-apps 1.7.4 app-with-deps) is inlined below and
+    exposes its exports on globalThis.__cre8ExtApps, so this bridge needs no
+    external import and no blob: — only script-src 'unsafe-inline'. 1.7.x runs
+    jitless by default, so it also works under the MCP Apps no-'unsafe-eval' CSP.
   -->
+
+  <!-- Inlined ext-apps SDK: its `export{…}` was rewritten to a
+       globalThis.__cre8ExtApps assignment (see assets/vendor/README.md). -->
   <script type="module">
-    // Pin to ext-apps 1.7.x via the self-contained `app-with-deps` build:
-    //  - 0.4.1 predates the App constructor's default `jitless: true`, so its
-    //    zod validators hit `new Function()` and die under the MCP Apps default
-    //    sandbox CSP (no 'unsafe-eval') — the iframe mounts but stays blank.
-    //  - `app-with-deps` inlines every dependency into one module, so esm.sh
-    //    serves a single file with no dependency fan-out for the sandbox to
-    //    load (and no bare imports to resolve).
-    import {
+{{ext_apps_sdk_js}}
+  </script>
+
+  <script type="module">
+    const {
       App,
       applyDocumentTheme,
       applyHostFonts,
       applyHostStyleVariables,
-    } from "https://esm.sh/@modelcontextprotocol/ext-apps@1.7.4/app-with-deps";
+    } = globalThis.__cre8ExtApps;
 
     // ── form-scope collection (unchanged from the classic shell) ──────────
     function collectFormScope(el) {

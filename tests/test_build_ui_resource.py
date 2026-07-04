@@ -199,11 +199,16 @@ def test_render_app_page_shell():
         app_name="cre8-mcp-ui",
     )
     assert "<!doctype html>" in html.lower()
-    # MCP Apps shell loads the ext-apps SDK and runs the App handshake.
-    assert "@modelcontextprotocol/ext-apps" in html
+    # Self-contained MCP Apps shell: the ext-apps SDK is inlined and exposed on
+    # globalThis (no external import), and the bridge still runs the App handshake.
+    assert "globalThis.__cre8ExtApps" in html
     assert 'new App({ name: "cre8-mcp-ui"' in html
-    assert "@tmorrow/cre8-wc" in html
+    # cre8-wc components are inlined (they self-register).
+    assert "customElements.define" in html
     assert "<cre8-card>" in html
+    # Zero external network references — nothing to be blocked by a host sandbox.
+    assert "cdn.jsdelivr" not in html
+    assert "esm.sh" not in html
     # Placeholders fully substituted.
     assert "{{body}}" not in html
     assert "{{app_name}}" not in html
@@ -307,11 +312,14 @@ def test_self_registering_bundle_linked_classic_shell():
     print("✓ self_registering_bundle_linked_classic_shell")
 
 
-def test_self_registering_bundle_linked_app_shell():
+def test_app_shell_is_self_contained():
+    """The MCP App shell inlines the SDK, components and tokens — no external URLs."""
     html = biu.render_app_page("<p>x</p>", title="T")
-    assert f'src="{_CRE8_WC_SCRIPT_URL}"' in html
-    assert 'src="https://cdn.jsdelivr.net/npm/@tmorrow/cre8-wc/dist/index.js"' not in html
-    print("✓ self_registering_bundle_linked_app_shell")
+    assert "cdn.jsdelivr" not in html and "esm.sh" not in html  # nothing external
+    assert "customElements.define" in html  # cre8-wc components inlined
+    assert "globalThis.__cre8ExtApps" in html  # ext-apps SDK inlined
+    assert "--cre8-" in html  # design tokens inlined
+    print("✓ app_shell_is_self_contained")
 
 
 def test_brand_tokens_linked_classic_shell():
@@ -322,12 +330,13 @@ def test_brand_tokens_linked_classic_shell():
     print("✓ brand_tokens_linked_classic_shell")
 
 
-def test_brand_tokens_linked_app_shell():
+def test_brand_tokens_inlined_app_shell():
+    # The app shell inlines the brand tokens; they precede the per-call theme
+    # override block so overrides still win the cascade.
     html = biu.render_app_page("<p>x</p>", title="T")
-    assert _BRAND_TOKENS_URL in html
-    # Loaded before the per-call override block so overrides win the cascade.
-    assert html.index(_BRAND_TOKENS_URL) < html.index('id="cre8-theme-tokens"')
-    print("✓ brand_tokens_linked_app_shell")
+    assert "--cre8-" in html
+    assert html.index("cre8-brand-tokens") < html.index('id="cre8-theme-tokens"')
+    print("✓ brand_tokens_inlined_app_shell")
 
 
 def test_app_tool_meta_rejects_bad_uri():

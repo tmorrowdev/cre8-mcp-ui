@@ -30,4 +30,4 @@ py-modules = ["server"]
 include = ["cre8_mcp_ui*"]
 
 [tool.setuptools.package-data]
-cre8_mcp_ui = ["assets/*.html"]
+cre8_mcp_ui = ["assets/*.html", "assets/vendor/*"]
