@@ -39,12 +39,40 @@ from mcp import types
 from mcp.server.fastmcp import FastMCP
 
 from cre8_mcp_ui import (
+    APP_MIME_TYPE,
     app_csp_meta,
     app_tool_meta,
     render_app_page_from_schema,
 )
 
 mcp = FastMCP("cre8-mcp-ui")
+
+
+def _advertise_ui_extension(server: FastMCP) -> None:
+    """Declare the MCP Apps UI extension in the `initialize` capabilities.
+
+    A host inspects the server's capabilities before deciding whether to fetch
+    and render `ui://` resources; if the `io.modelcontextprotocol/ui` extension
+    is absent it can skip `resources/read` entirely and nothing renders. FastMCP
+    builds capabilities automatically and exposes no hook for extensions, so we
+    wrap the low-level server's `create_initialization_options` and attach the
+    extension to the (extra-allowing) ServerCapabilities model.
+    """
+    low = server._mcp_server
+    original = low.create_initialization_options
+    extension = {"io.modelcontextprotocol/ui": {"mimeTypes": [APP_MIME_TYPE]}}
+
+    def with_ui_extension(*args, **kwargs):
+        opts = original(*args, **kwargs)
+        opts.capabilities = opts.capabilities.model_copy(
+            update={"extensions": extension}
+        )
+        return opts
+
+    low.create_initialization_options = with_ui_extension
+
+
+_advertise_ui_extension(mcp)
 
 # In-memory store for the demo. Swap for Supabase / your persistence layer.
 _CONTACTS: list[dict] = []

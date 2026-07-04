@@ -247,8 +247,30 @@ def test_app_csp_meta():
 def test_app_tool_meta():
     meta = biu.app_tool_meta("ui://demo/widget")
     assert meta["ui"]["resourceUri"] == "ui://demo/widget"
-    assert meta["ui/resourceUri"] == "ui://demo/widget"  # legacy key
+    assert meta["ui/resourceUri"] == "ui://demo/widget"  # legacy key claude.ai reads
+    # CSP now rides on the tool meta too (claude.ai reads the sandbox policy here).
+    assert "https://cdn.jsdelivr.net" in meta["ui"]["csp"]["resourceDomains"]
+    assert "https://esm.sh" in meta["ui"]["csp"]["resourceDomains"]
     print("✓ app_tool_meta")
+
+
+def test_app_tool_meta_csp_optional_and_frame():
+    bare = biu.app_tool_meta("ui://demo/widget", csp=False)
+    assert "csp" not in bare["ui"]
+    sized = biu.app_tool_meta("ui://demo/widget", prefer_frame={"width": 480, "height": 640})
+    assert sized["ui"]["preferredFrameSize"] == {"width": 480, "height": 640}
+    print("✓ app_tool_meta_csp_optional_and_frame")
+
+
+def test_server_advertises_ui_extension():
+    import server as srv
+
+    opts = srv.mcp._mcp_server.create_initialization_options()
+    caps = opts.capabilities.model_dump(exclude_none=True)
+    ext = caps.get("extensions", {})
+    assert "io.modelcontextprotocol/ui" in ext
+    assert biu.APP_MIME_TYPE in ext["io.modelcontextprotocol/ui"]["mimeTypes"]
+    print("✓ server_advertises_ui_extension")
 
 
 _BRAND_TOKENS_URL = (

@@ -313,16 +313,38 @@ def app_csp_meta(
     }
 
 
-def app_tool_meta(resource_uri: str) -> dict[str, Any]:
+def app_tool_meta(
+    resource_uri: str,
+    *,
+    csp: bool = True,
+    resource_domains: list[str] | None = None,
+    connect_domains: list[str] | None = None,
+    prefer_frame: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Build the tool `_meta` that links a tool to its MCP Apps UI resource.
 
-    Includes the legacy ``ui/resourceUri`` key alongside ``ui.resourceUri`` for
-    compatibility with hosts on either revision of the spec.
+    Emits both shapes of the association key:
+      - ``ui.resourceUri`` — the SEP-1865 nested key (other spec-compliant hosts)
+      - ``ui/resourceUri`` — the deprecated flat key claude.ai still requires
+        (anthropics/claude-ai-mcp #71). Without it claude.ai never links the tool
+        to its resource and renders nothing.
+
+    Also carries the CSP allowlist on the *tool* meta (``ui.csp``) in addition to
+    the resource meta, since claude.ai reads the sandbox policy from the tool's
+    ``ui`` block. Omit it with ``csp=False`` if you set CSP only on the resource.
     """
     _validate_uri(resource_uri)
+    ui: dict[str, Any] = {"resourceUri": resource_uri}
+    if csp:
+        ui["csp"] = {
+            "resourceDomains": resource_domains or list(APP_CSP_RESOURCE_DOMAINS),
+            "connectDomains": connect_domains or list(APP_CSP_CONNECT_DOMAINS),
+        }
+    if prefer_frame:
+        ui["preferredFrameSize"] = prefer_frame
     return {
-        "ui": {"resourceUri": resource_uri},
-        "ui/resourceUri": resource_uri,  # legacy support
+        "ui": ui,                        # spec-compliant (nested)
+        "ui/resourceUri": resource_uri,  # deprecated flat key — claude.ai reads THIS
     }
 
 
