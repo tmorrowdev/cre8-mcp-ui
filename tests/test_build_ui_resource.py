@@ -273,7 +273,10 @@ def test_contact_form_uses_cre8wc_2x_components():
     html = srv.contact_form_view()
     # 2.x tags that must be present.
     assert "<cre8-field" in html
-    assert 'slot="body"' in html  # card body slot (2.x), not the default slot
+    # Card body content lives in the default slot (cre8-card has no "body" slot),
+    # so the form-scope wrapper must NOT carry slot="body".
+    assert 'slot="body"' not in html
+    assert "data-cre8-form-scope" in html
     assert 'text="Save contact"' in html  # button label is an attribute in 2.x
     # Tags removed in the cre8-wc 2.0 migration must not reappear.
     for gone in ("<cre8-input", "<cre8-textarea", "<cre8-form", "<cre8-empty-state"):

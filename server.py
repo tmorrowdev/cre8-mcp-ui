@@ -111,9 +111,10 @@ def _contact_form_schema() -> dict:
                             "header": [
                                 {"component": "h2", "slots": {"default": [{"text": "Add a contact"}]}}
                             ],
-                            # cre8-wc 2.x cards render their content from the
-                            # `body` slot (not a default slot).
-                            "body": [
+                            # cre8-card's template is <slot name="header">, <slot>
+                            # (default = body), <slot name="footer"> — body content
+                            # goes in the DEFAULT slot; there is no "body" slot.
+                            "default": [
                                 {
                                     # data-cre8-form-scope marks the subtree whose
                                     # [name] fields are collected on submit.
