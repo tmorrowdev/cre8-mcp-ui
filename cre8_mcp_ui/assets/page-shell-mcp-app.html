@@ -53,12 +53,19 @@
     resource's _meta.ui.csp.resourceDomains, or the host sandbox blocks them.
   -->
   <script type="module">
+    // Pin to ext-apps 1.7.x via the self-contained `app-with-deps` build:
+    //  - 0.4.1 predates the App constructor's default `jitless: true`, so its
+    //    zod validators hit `new Function()` and die under the MCP Apps default
+    //    sandbox CSP (no 'unsafe-eval') — the iframe mounts but stays blank.
+    //  - `app-with-deps` inlines every dependency into one module, so esm.sh
+    //    serves a single file with no dependency fan-out for the sandbox to
+    //    load (and no bare imports to resolve).
     import {
       App,
       applyDocumentTheme,
       applyHostFonts,
       applyHostStyleVariables,
-    } from "https://esm.sh/@modelcontextprotocol/ext-apps@0.4.1";
+    } from "https://esm.sh/@modelcontextprotocol/ext-apps@1.7.4/app-with-deps";
 
     // ── form-scope collection (unchanged from the classic shell) ──────────
     function collectFormScope(el) {
