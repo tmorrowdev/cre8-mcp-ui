@@ -6,13 +6,16 @@
   <meta name="color-scheme" content="light dark">
   <title>{{title}}</title>
 
-  <!-- cre8-wc design system (CSP: resourceDomains must allow cdn.jsdelivr.net) -->
-  <script type="module" src="https://cdn.jsdelivr.net/npm/@tmorrow/cre8-wc/dist/index.js"></script>
+  <!-- cre8-wc design system (CSP: resourceDomains must allow cdn.jsdelivr.net).
+       Use the self-registering CDN bundle: it calls customElements.define() for
+       every cre8-* element. (The package's ./lib/index.js only re-exports classes
+       and there is no ./dist/index.js, so neither registers elements on its own.) -->
+  <script type="module" src="https://cdn.jsdelivr.net/npm/@tmorrow/cre8-wc@2/cdn/cre8-wc.esm.js"></script>
 
   <!-- cre8-a2ui brand design tokens: defines the :root --cre8-* custom properties
        the components consume. @imports tokens_brand.css + fonts.css from the same
        CDN directory (fonts load woff2 from cdn.jsdelivr.net — covered by CSP). -->
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tmorrow/cre8-wc/dist/design-tokens/brands/cre8-a2ui/css/tokens_cre8-a2ui.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tmorrow/cre8-wc@2/dist/design-tokens/brands/cre8-a2ui/css/tokens_cre8-a2ui.css">
 
   <!-- Per-call theme overrides (optional, populated by build_ui_resource);
        loaded after the brand tokens so overrides win the cascade. -->

@@ -252,9 +252,30 @@ def test_app_tool_meta():
 
 
 _BRAND_TOKENS_URL = (
-    "https://cdn.jsdelivr.net/npm/@tmorrow/cre8-wc"
+    "https://cdn.jsdelivr.net/npm/@tmorrow/cre8-wc@2"
     "/dist/design-tokens/brands/cre8-a2ui/css/tokens_cre8-a2ui.css"
 )
+
+# The self-registering CDN bundle — the only cre8-wc entry that actually calls
+# customElements.define() for every element. `./lib/index.js` merely re-exports
+# classes and `./dist/index.js` does not exist, so neither registers elements.
+_CRE8_WC_SCRIPT_URL = "https://cdn.jsdelivr.net/npm/@tmorrow/cre8-wc@2/cdn/cre8-wc.esm.js"
+
+
+def test_self_registering_bundle_linked_classic_shell():
+    body = json.loads(
+        biu.from_html("<p>x</p>", uri="ui://test/reg").model_dump_json()
+    )["resource"]["text"]
+    assert f'src="{_CRE8_WC_SCRIPT_URL}"' in body
+    assert 'src="https://cdn.jsdelivr.net/npm/@tmorrow/cre8-wc/dist/index.js"' not in body
+    print("✓ self_registering_bundle_linked_classic_shell")
+
+
+def test_self_registering_bundle_linked_app_shell():
+    html = biu.render_app_page("<p>x</p>", title="T")
+    assert f'src="{_CRE8_WC_SCRIPT_URL}"' in html
+    assert 'src="https://cdn.jsdelivr.net/npm/@tmorrow/cre8-wc/dist/index.js"' not in html
+    print("✓ self_registering_bundle_linked_app_shell")
 
 
 def test_brand_tokens_linked_classic_shell():

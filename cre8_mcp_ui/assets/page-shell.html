@@ -5,13 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{title}}</title>
 
-  <!-- cre8-wc design system -->
-  <script type="module" src="https://cdn.jsdelivr.net/npm/@tmorrow/cre8-wc/dist/index.js"></script>
+  <!-- cre8-wc design system: self-registering CDN bundle (defines every cre8-*
+       element via customElements.define). -->
+  <script type="module" src="https://cdn.jsdelivr.net/npm/@tmorrow/cre8-wc@2/cdn/cre8-wc.esm.js"></script>
 
   <!-- cre8-a2ui brand design tokens: defines the :root --cre8-* custom properties
        the components consume. @imports tokens_brand.css + fonts.css from the same
        CDN directory. -->
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tmorrow/cre8-wc/dist/design-tokens/brands/cre8-a2ui/css/tokens_cre8-a2ui.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tmorrow/cre8-wc@2/dist/design-tokens/brands/cre8-a2ui/css/tokens_cre8-a2ui.css">
 
   <!-- Per-call theme overrides (optional, populated by build_ui_resource);
        loaded after the brand tokens so overrides win the cascade. -->
