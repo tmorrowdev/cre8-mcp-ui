@@ -27,6 +27,7 @@ if str(_REPO_ROOT) not in sys.path:
 
 os.environ.setdefault("MCP_TRANSPORT", "streamable-http")
 
+from mcp.server.transport_security import TransportSecuritySettings  # noqa: E402
 from starlette.middleware.cors import CORSMiddleware  # noqa: E402
 
 from server import mcp  # noqa: E402
@@ -34,6 +35,18 @@ from server import mcp  # noqa: E402
 # Stateless HTTP: no per-connection session kept in memory, so any lambda
 # invocation can serve any request — the right model for serverless.
 mcp.settings.stateless_http = True
+
+# FastMCP defaults DNS-rebinding protection ON, allowlisting only localhost
+# (127.0.0.1/localhost/[::1]). On Vercel the Host header is the deployment's
+# *.vercel.app domain (and preview URLs carry per-deploy hashes), so every
+# request is rejected with "Invalid host header". That protection guards
+# *localhost* servers against a malicious page rebinding DNS to 127.0.0.1 — it
+# has no purpose for a public HTTPS endpoint that's already CORS-open, so we
+# turn it off. To lock this down to specific domains instead, set
+# enable_dns_rebinding_protection=True with allowed_hosts/allowed_origins.
+mcp.settings.transport_security = TransportSecuritySettings(
+    enable_dns_rebinding_protection=False,
+)
 
 _asgi = mcp.streamable_http_app()
 _asgi.add_middleware(
