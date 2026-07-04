@@ -6,13 +6,21 @@
   <meta name="color-scheme" content="light dark">
   <title>{{title}}</title>
 
-  <!-- cre8-wc design system (CSP: resourceDomains must allow cdn.jsdelivr.net) -->
-  <script type="module" src="https://cdn.jsdelivr.net/npm/@tmorrow/cre8-wc/dist/index.js"></script>
+  <!-- SELF-CONTAINED: everything below is inlined from cre8_mcp_ui/assets/vendor
+       so the sandboxed iframe makes ZERO external network requests. Strict hosts
+       (e.g. claude.ai) may block external CDN loads regardless of the resource's
+       _meta.ui.csp hints; inlining removes that dependency entirely. -->
 
-  <!-- cre8-a2ui brand design tokens: defines the :root --cre8-* custom properties
-       the components consume. @imports tokens_brand.css + fonts.css from the same
-       CDN directory (fonts load woff2 from cdn.jsdelivr.net — covered by CSP). -->
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tmorrow/cre8-wc/dist/design-tokens/brands/cre8-a2ui/css/tokens_cre8-a2ui.css">
+  <!-- cre8-a2ui :root design tokens (--cre8-* custom properties). -->
+  <style id="cre8-brand-tokens">
+{{tokens_css}}
+  </style>
+
+  <!-- cre8-wc components (only the 6 the form uses; each self-registers via
+       customElements.define). Inline module → needs only script-src 'unsafe-inline'. -->
+  <script type="module">
+{{cre8_wc_js}}
+  </script>
 
   <!-- Per-call theme overrides (optional, populated by build_ui_resource);
        loaded after the brand tokens so overrides win the cascade. -->
@@ -46,16 +54,25 @@
     postMessage. This is what lets Claude Desktop render the UI as a sandboxed,
     interactive iframe rather than a raw-HTML dump.
 
-    CSP: esm.sh (this SDK) and cdn.jsdelivr.net (cre8-wc) must appear in the
-    resource's _meta.ui.csp.resourceDomains, or the host sandbox blocks them.
+    Self-contained: the SDK (ext-apps 1.7.4 app-with-deps) is inlined below and
+    exposes its exports on globalThis.__cre8ExtApps, so this bridge needs no
+    external import and no blob: — only script-src 'unsafe-inline'. 1.7.x runs
+    jitless by default, so it also works under the MCP Apps no-'unsafe-eval' CSP.
   -->
+
+  <!-- Inlined ext-apps SDK: its `export{…}` was rewritten to a
+       globalThis.__cre8ExtApps assignment (see assets/vendor/README.md). -->
   <script type="module">
-    import {
+{{ext_apps_sdk_js}}
+  </script>
+
+  <script type="module">
+    const {
       App,
       applyDocumentTheme,
       applyHostFonts,
       applyHostStyleVariables,
-    } from "https://esm.sh/@modelcontextprotocol/ext-apps@0.4.1";
+    } = globalThis.__cre8ExtApps;
 
     // ── form-scope collection (unchanged from the classic shell) ──────────
     function collectFormScope(el) {
@@ -111,14 +128,18 @@
       if (!target || !data) return;
       const items = (data.contacts || data.items || []);
       if (!items.length) {
+        // cre8-wc 2.x: cre8-empty-state was removed; use an inline alert.
         target.innerHTML =
-          '<cre8-empty-state headline="No contacts yet" description="Add one with the form above."></cre8-empty-state>';
+          '<cre8-inline-alert variant="info">No contacts yet. Add one with the form above.</cre8-inline-alert>';
         return;
       }
+      // cre8-wc 2.x: cre8-list-item renders default-slot content (the old
+      // headline / supporting-text attributes no longer exist).
       target.innerHTML = items.map(function (c) {
         const name = escapeHtml(c.name || c.headline || '');
         const sub = escapeHtml(c.email || c.supporting_text || c.notes || '');
-        return '<cre8-list-item headline="' + name + '" supporting-text="' + sub + '"></cre8-list-item>';
+        return '<cre8-list-item><strong>' + name + '</strong>' +
+               (sub ? ' — ' + sub : '') + '</cre8-list-item>';
       }).join('');
     }
 

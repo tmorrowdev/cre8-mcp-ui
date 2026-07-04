@@ -1,0 +1,4 @@
+# Runtime dependencies for the Vercel Python (@vercel/python) deployment.
+# Vercel provides the ASGI server, so uvicorn is intentionally omitted.
+mcp>=1.26.0
+mcp-ui-server>=1.0.0

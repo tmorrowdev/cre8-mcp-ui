@@ -6,7 +6,7 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "mcp>=1.26.0",
-    "mcp-ui-server>=5.0.0",
+    "mcp-ui-server>=1.0.0",
 ]
 
 [project.optional-dependencies]
@@ -30,4 +30,4 @@ py-modules = ["server"]
 include = ["cre8_mcp_ui*"]
 
 [tool.setuptools.package-data]
-cre8_mcp_ui = ["assets/*.html"]
+cre8_mcp_ui = ["assets/*.html", "assets/vendor/*"]

@@ -56,6 +56,22 @@ _SHELL_TEMPLATE: str | None = None
 _APP_SHELL_PATH = Path(__file__).parent / "assets" / "page-shell-mcp-app.html"
 _APP_SHELL_TEMPLATE: str | None = None
 
+# Self-contained vendored assets inlined into the MCP App shell so the sandboxed
+# iframe makes zero external requests (see assets/vendor/README.md).
+_VENDOR_DIR = Path(__file__).parent / "assets" / "vendor"
+_VENDOR_CACHE: dict[str, str] = {}
+
+
+def _load_vendor(name: str) -> str:
+    if name not in _VENDOR_CACHE:
+        _VENDOR_CACHE[name] = (_VENDOR_DIR / name).read_text(encoding="utf-8")
+    return _VENDOR_CACHE[name]
+
+
+def _escape_closing_script(js: str) -> str:
+    """Neutralize any literal </script> in embedded JS so it can't close the tag."""
+    return js.replace("</script", "<\\/script")
+
 # Domains the MCP Apps iframe must be allowed to load, declared in the
 # resource's _meta.ui.csp: the ext-apps SDK (esm.sh) and cre8-wc (jsdelivr).
 APP_CSP_RESOURCE_DOMAINS = ["https://esm.sh", "https://cdn.jsdelivr.net"]
@@ -273,6 +289,15 @@ def render_app_page(
         shell.replace("{{title}}", _escape_text(title))
         .replace("{{app_name}}", _escape_attr(app_name))
         .replace("{{theme_css}}", theme_css)
+        .replace("{{tokens_css}}", _load_vendor("tokens.css"))
+        .replace(
+            "{{cre8_wc_js}}",
+            _escape_closing_script(_load_vendor("cre8-wc.min.js")),
+        )
+        .replace(
+            "{{ext_apps_sdk_js}}",
+            _escape_closing_script(_load_vendor("ext-apps.globalized.js")),
+        )
         .replace("{{body}}", body_html)
     )
 
@@ -313,16 +338,38 @@ def app_csp_meta(
     }
 
 
-def app_tool_meta(resource_uri: str) -> dict[str, Any]:
+def app_tool_meta(
+    resource_uri: str,
+    *,
+    csp: bool = True,
+    resource_domains: list[str] | None = None,
+    connect_domains: list[str] | None = None,
+    prefer_frame: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Build the tool `_meta` that links a tool to its MCP Apps UI resource.
 
-    Includes the legacy ``ui/resourceUri`` key alongside ``ui.resourceUri`` for
-    compatibility with hosts on either revision of the spec.
+    Emits both shapes of the association key:
+      - ``ui.resourceUri`` — the SEP-1865 nested key (other spec-compliant hosts)
+      - ``ui/resourceUri`` — the deprecated flat key claude.ai still requires
+        (anthropics/claude-ai-mcp #71). Without it claude.ai never links the tool
+        to its resource and renders nothing.
+
+    Also carries the CSP allowlist on the *tool* meta (``ui.csp``) in addition to
+    the resource meta, since claude.ai reads the sandbox policy from the tool's
+    ``ui`` block. Omit it with ``csp=False`` if you set CSP only on the resource.
     """
     _validate_uri(resource_uri)
+    ui: dict[str, Any] = {"resourceUri": resource_uri}
+    if csp:
+        ui["csp"] = {
+            "resourceDomains": resource_domains or list(APP_CSP_RESOURCE_DOMAINS),
+            "connectDomains": connect_domains or list(APP_CSP_CONNECT_DOMAINS),
+        }
+    if prefer_frame:
+        ui["preferredFrameSize"] = prefer_frame
     return {
-        "ui": {"resourceUri": resource_uri},
-        "ui/resourceUri": resource_uri,  # legacy support
+        "ui": ui,                        # spec-compliant (nested)
+        "ui/resourceUri": resource_uri,  # deprecated flat key — claude.ai reads THIS
     }
 
 

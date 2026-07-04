@@ -49,6 +49,43 @@ MCP_TRANSPORT=sse MCP_HOST=0.0.0.0 MCP_PORT=8000 python server.py
 Swap the in-memory `_CONTACTS` list in `server.py` for Supabase or your own
 persistence layer.
 
+## Deploy to Vercel (remote MCP Apps connection)
+
+The repo ships a Vercel Python serverless deployment so the server is reachable
+over HTTPS and can be added as a remote MCP connector serving `ui://` resources.
+
+```
+api/index.py     # module-level ASGI `app` — FastMCP Streamable HTTP, stateless + CORS
+vercel.json      # rewrite all paths to the function; bundle cre8_mcp_ui/assets
+requirements.txt # runtime deps (Vercel provides the ASGI server; no uvicorn)
+.vercelignore    # excludes the local Node harness + dev artifacts
+```
+
+Deploy either way:
+
+```bash
+# CLI (from the repo root)
+npm i -g vercel
+vercel deploy            # preview
+vercel deploy --prod     # production
+```
+
+…or connect the GitHub repo in the Vercel dashboard and every push deploys.
+
+Once live, the MCP endpoint is:
+
+```
+https://<your-deployment>.vercel.app/mcp
+```
+
+Add that URL as a **custom / remote MCP connector** in your host (e.g. Claude).
+The host discovers `show_contact_form`, fetches the
+`ui://cre8-mcp-ui/contact-form` resource (`text/html;profile=mcp-app`), and
+renders it in a sandboxed iframe. The deployment runs in **stateless HTTP** mode
+(`mcp.settings.stateless_http = True`), which is what serverless needs — but it
+also means the in-memory `_CONTACTS` store does not persist across cold starts;
+swap it for a real datastore before relying on it in production.
+
 ## Connecting an MCP host
 
 **Claude Desktop / any stdio MCP client** — add to the client's MCP config:

@@ -1,0 +1,12 @@
+# The Node harness is a local dev-only MCP Apps host — not part of the
+# serverless deployment.
+harness/
+
+# Tests and dev artifacts
+tests/
+.venv/
+.venv-*/
+__pycache__/
+*.egg-info/
+.pytest_cache/
+.claude/

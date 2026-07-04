@@ -199,11 +199,16 @@ def test_render_app_page_shell():
         app_name="cre8-mcp-ui",
     )
     assert "<!doctype html>" in html.lower()
-    # MCP Apps shell loads the ext-apps SDK and runs the App handshake.
-    assert "@modelcontextprotocol/ext-apps" in html
+    # Self-contained MCP Apps shell: the ext-apps SDK is inlined and exposed on
+    # globalThis (no external import), and the bridge still runs the App handshake.
+    assert "globalThis.__cre8ExtApps" in html
     assert 'new App({ name: "cre8-mcp-ui"' in html
-    assert "@tmorrow/cre8-wc" in html
+    # cre8-wc components are inlined (they self-register).
+    assert "customElements.define" in html
     assert "<cre8-card>" in html
+    # Zero external network references — nothing to be blocked by a host sandbox.
+    assert "cdn.jsdelivr" not in html
+    assert "esm.sh" not in html
     # Placeholders fully substituted.
     assert "{{body}}" not in html
     assert "{{app_name}}" not in html
@@ -247,14 +252,74 @@ def test_app_csp_meta():
 def test_app_tool_meta():
     meta = biu.app_tool_meta("ui://demo/widget")
     assert meta["ui"]["resourceUri"] == "ui://demo/widget"
-    assert meta["ui/resourceUri"] == "ui://demo/widget"  # legacy key
+    assert meta["ui/resourceUri"] == "ui://demo/widget"  # legacy key claude.ai reads
+    # CSP now rides on the tool meta too (claude.ai reads the sandbox policy here).
+    assert "https://cdn.jsdelivr.net" in meta["ui"]["csp"]["resourceDomains"]
+    assert "https://esm.sh" in meta["ui"]["csp"]["resourceDomains"]
     print("✓ app_tool_meta")
 
 
+def test_app_tool_meta_csp_optional_and_frame():
+    bare = biu.app_tool_meta("ui://demo/widget", csp=False)
+    assert "csp" not in bare["ui"]
+    sized = biu.app_tool_meta("ui://demo/widget", prefer_frame={"width": 480, "height": 640})
+    assert sized["ui"]["preferredFrameSize"] == {"width": 480, "height": 640}
+    print("✓ app_tool_meta_csp_optional_and_frame")
+
+
+def test_contact_form_uses_cre8wc_2x_components():
+    import server as srv
+
+    html = srv.contact_form_view()
+    # 2.x tags that must be present.
+    assert "<cre8-field" in html
+    assert 'slot="body"' in html  # card body slot (2.x), not the default slot
+    assert 'text="Save contact"' in html  # button label is an attribute in 2.x
+    # Tags removed in the cre8-wc 2.0 migration must not reappear.
+    for gone in ("<cre8-input", "<cre8-textarea", "<cre8-form", "<cre8-empty-state"):
+        assert gone not in html, f"removed 2.x component leaked back: {gone}"
+    print("✓ contact_form_uses_cre8wc_2x_components")
+
+
+def test_server_advertises_ui_extension():
+    import server as srv
+
+    opts = srv.mcp._mcp_server.create_initialization_options()
+    caps = opts.capabilities.model_dump(exclude_none=True)
+    ext = caps.get("extensions", {})
+    assert "io.modelcontextprotocol/ui" in ext
+    assert biu.APP_MIME_TYPE in ext["io.modelcontextprotocol/ui"]["mimeTypes"]
+    print("✓ server_advertises_ui_extension")
+
+
 _BRAND_TOKENS_URL = (
-    "https://cdn.jsdelivr.net/npm/@tmorrow/cre8-wc"
+    "https://cdn.jsdelivr.net/npm/@tmorrow/cre8-wc@2"
     "/dist/design-tokens/brands/cre8-a2ui/css/tokens_cre8-a2ui.css"
 )
+
+# The self-registering CDN bundle — the only cre8-wc entry that actually calls
+# customElements.define() for every element. `./lib/index.js` merely re-exports
+# classes and `./dist/index.js` does not exist, so neither registers elements.
+_CRE8_WC_SCRIPT_URL = "https://cdn.jsdelivr.net/npm/@tmorrow/cre8-wc@2/cdn/cre8-wc.esm.js"
+
+
+def test_self_registering_bundle_linked_classic_shell():
+    body = json.loads(
+        biu.from_html("<p>x</p>", uri="ui://test/reg").model_dump_json()
+    )["resource"]["text"]
+    assert f'src="{_CRE8_WC_SCRIPT_URL}"' in body
+    assert 'src="https://cdn.jsdelivr.net/npm/@tmorrow/cre8-wc/dist/index.js"' not in body
+    print("✓ self_registering_bundle_linked_classic_shell")
+
+
+def test_app_shell_is_self_contained():
+    """The MCP App shell inlines the SDK, components and tokens — no external URLs."""
+    html = biu.render_app_page("<p>x</p>", title="T")
+    assert "cdn.jsdelivr" not in html and "esm.sh" not in html  # nothing external
+    assert "customElements.define" in html  # cre8-wc components inlined
+    assert "globalThis.__cre8ExtApps" in html  # ext-apps SDK inlined
+    assert "--cre8-" in html  # design tokens inlined
+    print("✓ app_shell_is_self_contained")
 
 
 def test_brand_tokens_linked_classic_shell():
@@ -265,12 +330,13 @@ def test_brand_tokens_linked_classic_shell():
     print("✓ brand_tokens_linked_classic_shell")
 
 
-def test_brand_tokens_linked_app_shell():
+def test_brand_tokens_inlined_app_shell():
+    # The app shell inlines the brand tokens; they precede the per-call theme
+    # override block so overrides still win the cascade.
     html = biu.render_app_page("<p>x</p>", title="T")
-    assert _BRAND_TOKENS_URL in html
-    # Loaded before the per-call override block so overrides win the cascade.
-    assert html.index(_BRAND_TOKENS_URL) < html.index('id="cre8-theme-tokens"')
-    print("✓ brand_tokens_linked_app_shell")
+    assert "--cre8-" in html
+    assert html.index("cre8-brand-tokens") < html.index('id="cre8-theme-tokens"')
+    print("✓ brand_tokens_inlined_app_shell")
 
 
 def test_app_tool_meta_rejects_bad_uri():
