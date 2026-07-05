@@ -38,6 +38,10 @@
     }
     #cre8-root { padding: var(--cre8-spacing-md, 16px); }
     [data-theme="dark"] { --cre8-color-text: #eee; }
+    /* cre8-chart's :host is display:inline, so its width:100% inner container
+       collapses in narrow/flex layouts and the canvas gets no width. Force the
+       host to a full-width block so the chart always has room to draw. */
+    cre8-chart { display: block; width: 100%; }
   </style>
 </head>
 <body>
