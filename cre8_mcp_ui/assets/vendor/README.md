@@ -8,7 +8,7 @@ be blocked regardless of the resource's `_meta.ui.csp` hints.
 
 | File | Source | Purpose |
 | --- | --- | --- |
-| `cre8-wc.min.js` | `@tmorrow/cre8-wc@2.0.4` (only the 6 components the form uses) | Registers `cre8-card`, `cre8-field`, `cre8-button`, `cre8-list`, `cre8-list-item`, `cre8-inline-alert` |
+| `cre8-wc.min.js` | `@tmorrow/cre8-wc@2.0.4` (only the components used) | Registers the form + dashboard components: `cre8-card`, `cre8-field`, `cre8-button`, `cre8-list`, `cre8-list-item`, `cre8-inline-alert`, `cre8-heading`, `cre8-badge`, `cre8-grid`, `cre8-grid-item`, the `cre8-table*` family, `cre8-divider`, and `cre8-chart` (bundles Chart.js) |
 | `ext-apps.globalized.js` | `@modelcontextprotocol/ext-apps@1.7.4/app-with-deps` | MCP Apps `App` bridge; its `export {…}` is rewritten to `globalThis.__cre8ExtApps = {…}` so an inline module can expose it without a dynamic `import()` (no `blob:` needed in the CSP) |
 | `tokens.css` | `@tmorrow/cre8-wc@2.0.4` `lib/design-tokens/brands/cre8-a2ui/css/tokens_brand.css` | The `:root` `--cre8-*` design tokens |
 

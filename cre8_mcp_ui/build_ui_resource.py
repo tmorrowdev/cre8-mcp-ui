@@ -214,6 +214,16 @@ def _render_node(node: dict[str, Any]) -> str:
     attrs = _render_attrs(node.get("props") or {})
     attrs.extend(_events_to_attrs(node.get("events") or {}))
 
+    # `properties` carries complex JS *properties* (objects/arrays) that can't be
+    # HTML attributes — e.g. cre8-chart's `data`/`options` (declared
+    # attribute:false). They're emitted as a JSON blob the page shell assigns as
+    # real element properties after upgrade (see applyProps in the shell).
+    properties = node.get("properties")
+    if properties:
+        attrs.append(
+            f"data-cre8-props='{_escape_attr(json.dumps(properties))}'"
+        )
+
     children_html: list[str] = []
     slots = node.get("slots") or {}
     for slot_name, items in slots.items():

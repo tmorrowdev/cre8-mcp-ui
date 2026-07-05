@@ -32,8 +32,13 @@ Run (SSE — legacy web hosts):
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import os
+import socket
+import urllib.error
+import urllib.request
+from urllib.parse import urlparse
 
 from mcp import types
 from mcp.server.fastmcp import FastMCP
@@ -44,6 +49,7 @@ from cre8_mcp_ui import (
     app_tool_meta,
     render_app_page_from_schema,
 )
+from cre8_mcp_ui.dashboard import spec_to_schema
 
 mcp = FastMCP("cre8-mcp-ui")
 
@@ -236,6 +242,188 @@ def save_contact(name: str, email: str, notes: str = "") -> list[types.TextConte
 def list_contacts() -> list[types.TextContent]:
     """Read the saved contacts back. Called by the app to render the list."""
     return _json_content({"contacts": _CONTACTS})
+
+
+# ──────────────────────────────────────────────────────────────────────
+# API dashboard: fetch any endpoint, let the agent design a dashboard
+#
+#   1. show_api_dashboard  → an input where the user pastes an endpoint URL
+#   2. fetch_api(url)      → the app (and the model) get the JSON back
+#   3. the agent inspects it and calls render_dashboard(spec) with a
+#      dashboard DSL; the dashboard resource renders it server-side
+# ──────────────────────────────────────────────────────────────────────
+
+API_INPUT_URI = f"ui://{SERVER}/api-input"
+DASHBOARD_URI = f"ui://{SERVER}/dashboard"
+
+# Server-side render of the most recent dashboard spec. Module-level (not MCP
+# session) state, so it survives across the render_dashboard call and the
+# resource read within a warm instance — the same model _CONTACTS uses.
+_DASHBOARD_SPEC: dict = {
+    "title": "No dashboard yet",
+    "sections": [
+        {"type": "note", "status": "info",
+         "text": "Fetch an endpoint, then ask the assistant to build a dashboard."}
+    ],
+}
+
+_FETCH_MAX_BYTES = 256 * 1024
+
+
+def _is_safe_public_url(url: str) -> tuple[bool, str]:
+    """Reject non-http(s) and requests that resolve to private/loopback hosts.
+
+    A public serverless endpoint fetching arbitrary URLs is an SSRF risk (e.g.
+    cloud metadata at 169.254.169.254 or internal services). Resolve every
+    address the host maps to and refuse private/loopback/link-local/reserved.
+    """
+    try:
+        parsed = urlparse(url)
+    except Exception:
+        return False, "unparseable URL"
+    if parsed.scheme not in ("http", "https"):
+        return False, "only http/https URLs are allowed"
+    host = parsed.hostname
+    if not host:
+        return False, "missing host"
+    try:
+        infos = socket.getaddrinfo(host, parsed.port or (443 if parsed.scheme == "https" else 80))
+    except socket.gaierror:
+        return False, f"cannot resolve host: {host}"
+    for info in infos:
+        ip = ipaddress.ip_address(info[4][0])
+        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast:
+            return False, f"host resolves to a non-public address ({ip})"
+    return True, ""
+
+
+@mcp.tool(meta={"ui": {"visibility": ["model", "app"]}})
+def fetch_api(url: str, method: str = "GET") -> list[types.TextContent]:
+    """GET an API endpoint (server-side) and return its JSON/text response.
+
+    Called by the API-input app and visible to the model so the assistant can
+    inspect the shape of the data and design a dashboard with render_dashboard.
+    """
+    ok, reason = _is_safe_public_url(url)
+    if not ok:
+        return _json_content({"ok": False, "error": reason})
+    req = urllib.request.Request(
+        url, method=method.upper(),
+        headers={"User-Agent": "cre8-mcp-ui/fetch_api", "Accept": "application/json, */*"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=12) as resp:
+            raw = resp.read(_FETCH_MAX_BYTES + 1)
+            truncated = len(raw) > _FETCH_MAX_BYTES
+            raw = raw[:_FETCH_MAX_BYTES]
+            ctype = resp.headers.get("Content-Type", "")
+            status = resp.status
+    except urllib.error.HTTPError as e:
+        return _json_content({"ok": False, "error": f"HTTP {e.code}", "status": e.code})
+    except Exception as e:  # noqa: BLE001 — surface any network error to the app
+        return _json_content({"ok": False, "error": str(e)})
+
+    text = raw.decode("utf-8", errors="replace")
+    data: object = text
+    if "json" in ctype or text[:1] in ("{", "["):
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError:
+            data = text
+    return _json_content({
+        "ok": True, "status": status, "url": url,
+        "contentType": ctype, "truncated": truncated, "data": data,
+    })
+
+
+def _api_input_schema() -> dict:
+    """A card with a URL field + Fetch button and a result-preview region."""
+    return {
+        "schema": "cre8-a2ui/1.0",
+        "target": "web-components",
+        "root": {
+            "component": "div",
+            "slots": {"default": [
+                {
+                    "component": "cre8-card",
+                    "slots": {
+                        "header": [{"component": "h2", "slots": {"default": [{"text": "API dashboard"}]}}],
+                        "default": [
+                            {
+                                "component": "div",
+                                "props": {"data-cre8-form-scope": True},
+                                "slots": {"default": [
+                                    {"component": "cre8-field",
+                                     "props": {"name": "url", "label": "API endpoint URL",
+                                               "placeholder": "https://api.example.com/data"}},
+                                    {"component": "cre8-button",
+                                     "props": {"variant": "primary", "text": "Fetch",
+                                               "type": "button", "data-cre8-preview": "#api-result"},
+                                     "events": {"click": {"type": "tool", "toolName": "fetch_api"}}},
+                                ]},
+                            }
+                        ],
+                    },
+                },
+                {"component": "div", "props": {"id": "api-result"}},
+            ]},
+        },
+    }
+
+
+@mcp.resource(API_INPUT_URI, mime_type=APP_MIME_TYPE, meta=app_csp_meta())
+def api_input_view() -> str:
+    return render_app_page_from_schema(_api_input_schema(), title="API dashboard", app_name=SERVER)
+
+
+@mcp.resource(DASHBOARD_URI, mime_type=APP_MIME_TYPE, meta=app_csp_meta())
+def dashboard_view() -> str:
+    """Render the most recent agent-designed dashboard spec (server-side)."""
+    return render_app_page_from_schema(
+        spec_to_schema(_DASHBOARD_SPEC),
+        title=str(_DASHBOARD_SPEC.get("title") or "Dashboard"),
+        app_name=SERVER,
+    )
+
+
+@mcp.tool(meta=app_tool_meta(API_INPUT_URI))
+def show_api_dashboard() -> list[types.TextContent]:
+    """Show the API-input UI: paste an endpoint URL, fetch it, then I build a dashboard."""
+    return [types.TextContent(
+        type="text",
+        text=("Showing the API dashboard input. Paste an endpoint URL and click Fetch; "
+              "then I'll inspect the response and build a dashboard from it."),
+    )]
+
+
+@mcp.tool(meta=app_tool_meta(DASHBOARD_URI))
+def render_dashboard(spec: dict) -> list[types.TextContent]:
+    """Render an agent-designed dashboard from a dashboard DSL spec.
+
+    Call this after fetch_api once you've seen the data. ``spec`` is::
+
+        {"title": str,
+         "sections": [
+           {"type": "stats", "items": [{"label": str, "value": str, "status"?: str}]},
+           {"type": "chart", "chartType": "bar|line|pie|doughnut|radar|polarArea",
+            "title"?: str, "labels": [str], "datasets": [{"label": str, "data": [num]}]},
+           {"type": "table", "title"?: str, "columns": [str], "rows": [[str]]},
+           {"type": "list",  "title"?: str, "items": [{"headline": str, "supporting"?: str}]},
+           {"type": "note",  "text": str, "status"?: "info|success|warning|error"}
+         ]}
+
+    The dashboard renders in a sandboxed iframe via the ``ui://cre8-mcp-ui/dashboard``
+    resource. status values must be a cre8 status (info/success/warning/error/...).
+    """
+    global _DASHBOARD_SPEC
+    if not isinstance(spec, dict) or "sections" not in spec:
+        return _json_content({"ok": False, "error": "spec must be an object with a 'sections' list"})
+    _DASHBOARD_SPEC = spec
+    n = len(spec.get("sections", []))
+    return [types.TextContent(
+        type="text",
+        text=f"Rendering the dashboard “{spec.get('title', 'Dashboard')}” with {n} section(s).",
+    )]
 
 
 def _run_http_with_cors(host: str, port: int) -> None:

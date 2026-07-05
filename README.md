@@ -86,6 +86,21 @@ renders it in a sandboxed iframe. The deployment runs in **stateless HTTP** mode
 also means the in-memory `_CONTACTS` store does not persist across cold starts;
 swap it for a real datastore before relying on it in production.
 
+## API dashboard (agent-designed)
+
+A second flow lets the agent turn any API into a dashboard:
+
+1. `show_api_dashboard` → renders an input where the user pastes an endpoint URL.
+2. `fetch_api(url)` → the server GETs the endpoint (with an SSRF guard that
+   refuses non-public hosts), returns the JSON to the app **and** the model.
+3. The agent inspects the data and calls `render_dashboard(spec)` with a compact
+   dashboard DSL (`stats` / `chart` / `table` / `list` / `note` sections); the
+   `ui://cre8-mcp-ui/dashboard` resource renders it server-side into cre8-wc
+   (charts via the bundled `cre8-chart` / Chart.js).
+
+All network calls happen server-side through tools, so the sandboxed iframe
+stays fully self-contained. See `cre8_mcp_ui/dashboard.py` for the DSL.
+
 ## Connecting an MCP host
 
 **Claude Desktop / any stdio MCP client** — add to the client's MCP config:
